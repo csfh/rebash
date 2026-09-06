@@ -162,13 +162,15 @@ cmd_up() {
   dest=$(enabled_file)
   if plugin_is_enabled "$name"; then
     printf 'up %s\n' "$name"
-    return 0
+  else
+    dir=$(dirname -- "$dest")
+    mkdir -p "$dir"
+    printf '%s\n' "$name" >>"$dest"
+    printf 'up %s\n' "$name"
   fi
-
-  dir=$(dirname -- "$dest")
-  mkdir -p "$dir"
-  printf '%s\n' "$name" >>"$dest"
-  printf 'up %s\n' "$name"
+  if [[ ${REBASH_INIT:-0} != 1 ]]; then
+    printf 'rb: source %s to load plugins in this shell\n' "$ROOT/init.bash" >&2
+  fi
 }
 
 case "${1:-}" in

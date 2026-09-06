@@ -218,6 +218,9 @@ stage() {
   if [[ -f "$source/install.sh" ]]; then
     install -Dm755 "$source/install.sh" "$dest/install.sh"
   fi
+  if [[ -f "$source/init.bash" ]]; then
+    install -Dm644 "$source/init.bash" "$dest/init.bash"
+  fi
   if [[ -d "$source/plugins" ]]; then
     rm -rf "$dest/plugins"
     cp -a "$source/plugins" "$dest/plugins"
@@ -227,10 +230,62 @@ stage() {
   printf '%s\n' "$(repo_url)" >"$dest/REPO"
 }
 
+write_bashrc_hook() {
+  local dest=$1
+  local bashrc="$HOME/.bashrc"
+  local init="$dest/init.bash"
+  local tmp
+  [[ -f "$init" ]] || return 0
+  mkdir -p "$(dirname -- "$bashrc")"
+  [[ -f "$bashrc" ]] || : >"$bashrc"
+  tmp=$(mktemp)
+  if grep -qF '# >>> rebash >>>' "$bashrc"; then
+    awk -v init="$init" '
+      $0 == "# >>> rebash >>>" {
+        print
+        print "if [[ -f \"" init "\" ]]; then"
+        print "  source \"" init "\""
+        print "fi"
+        skip=1
+        next
+      }
+      $0 == "# <<< rebash <<<" { skip=0; print; next }
+      skip { next }
+      { print }
+    ' "$bashrc" >"$tmp"
+  else
+    cat "$bashrc" >"$tmp"
+    {
+      printf '\n# >>> rebash >>>\n'
+      printf 'if [[ -f "%s" ]]; then\n' "$init"
+      printf '  source "%s"\n' "$init"
+      printf 'fi\n'
+      printf '# <<< rebash <<<\n'
+    } >>"$tmp"
+  fi
+  mv "$tmp" "$bashrc"
+}
+
+remove_bashrc_hook() {
+  local bashrc="$HOME/.bashrc"
+  local tmp
+  [[ -f "$bashrc" ]] || return 0
+  grep -qF '# >>> rebash >>>' "$bashrc" || return 0
+  tmp=$(mktemp)
+  awk '
+    $0 == "# >>> rebash >>>" { skip=1; next }
+    $0 == "# <<< rebash <<<" { skip=0; next }
+    skip { next }
+    { print }
+  ' "$bashrc" >"$tmp"
+  mv "$tmp" "$bashrc"
+}
+
 uninstall() {
   local dest wrapper
   dest=$(data_path "$PREFIX")
   wrapper=$(destination_path "$PREFIX")
+  remove_bashrc_hook
   if [[ -e "$wrapper" || -L "$wrapper" ]]; then
     rm -f "$wrapper" || die "cannot remove ${wrapper}"
     printf 'removed %s\n' "$wrapper"
@@ -274,6 +329,7 @@ install_rebash() {
 
   stage "$source" "$dest"
   write_wrapper "$dest" "$wrapper"
+  write_bashrc_hook "$dest"
 
   [[ -x "$wrapper" ]] || die "failed to install ${wrapper}"
   warn_if_not_on_path "$(dirname -- "$wrapper")"
