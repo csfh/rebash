@@ -169,9 +169,11 @@ sync_cache() {
     printf '%s\n' "$cache"
     return
   fi
-  git -C "$cache" remote set-url origin "$repo"
-  git -C "$cache" fetch --depth 1 origin "$channel" >&2 || die "channel not found: ${channel}"
-  git -C "$cache" checkout -B "$channel" FETCH_HEAD >&2
+  {
+    git -C "$cache" remote set-url origin "$repo"
+    git -C "$cache" fetch --depth 1 origin "$channel" || die "channel not found: ${channel}"
+    git -C "$cache" checkout -B "$channel" FETCH_HEAD
+  } >&2
   printf '%s\n' "$cache"
 }
 

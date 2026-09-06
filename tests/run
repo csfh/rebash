@@ -299,6 +299,21 @@ got=$(PATH="$piped_prefix/bin" command -v rb)
 assert_eq "piped install puts rb on PATH" "$got" "$piped_prefix/bin/rb"
 assert_success "piped install cache stays under test HOME" test -d "$piped_home/.cache/rebash/src"
 
+set +e
+STDOUT=$(
+  HOME="$piped_home" \
+    XDG_CACHE_HOME="$piped_home/.cache" \
+    REBASH_REPO="$fixture" \
+    bash -s -- --prefix "$piped_prefix" <"$INSTALL_SH"
+)
+second_piped=$?
+set -e
+if [[ $second_piped -eq 0 && -x $piped_prefix/bin/rb && $STDOUT != *"source is missing"* ]]; then
+  pass_msg
+else
+  fail_msg "piped reinstall from existing cache"
+fi
+
 git_commit() {
   local repo=$1
   local message=$2
