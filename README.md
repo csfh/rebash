@@ -17,13 +17,13 @@ That puts `rb` on `~/.local/bin`. From a clone, `./install.sh` does the same.
 ./install.sh --uninstall
 ```
 
-## Plugs
+## Plugins
 
 ```bash
 rb up git
 ```
 
-That enables the git plug, a set of bash aliases for git (`gs`, `gco`, `gl`, and the rest). `rb` starts bash with enabled plugs loaded.
+That enables the git plugin, a set of bash aliases for git (`gs`, `gco`, `gl`, and the rest). `rb` starts bash with enabled plugins loaded.
 
 ## Tests
 

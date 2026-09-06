@@ -1,9 +1,9 @@
-# Git plug: bash aliases for everyday git.
+# Git plugin: bash aliases for everyday git.
 
-if [[ ${REBASH_PLUG_GIT:-0} == 1 ]]; then
+if [[ ${REBASH_PLUGIN_GIT:-0} == 1 ]]; then
   return 0 2>/dev/null || exit 0
 fi
-REBASH_PLUG_GIT=1
+REBASH_PLUGIN_GIT=1
 
 alias g='git'
 

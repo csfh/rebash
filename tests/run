@@ -91,7 +91,7 @@ trap 'rm -rf "$WORK"' EXIT
 assert_success "bash -n install.sh" bash -n "$INSTALL_SH"
 assert_success "bash -n bin/rb" bash -n "$RB_SRC"
 assert_success "bash -n bashrc" bash -n "$ROOT/bashrc"
-assert_success "bash -n plugs/git/plug.bash" bash -n "$ROOT/plugs/git/plug.bash"
+assert_success "bash -n plugins/git/plugin.bash" bash -n "$ROOT/plugins/git/plugin.bash"
 assert_success "bash -n tests/run" bash -n "$ROOT/tests/run"
 
 assert_success "install.sh --help" "$INSTALL_SH" --help
@@ -181,7 +181,7 @@ assert_eq "rb -c sees REBASH" "$got" "1"
 got=$(PATH="$prefix/bin:$PATH" rb -c 'printf %s "$REBASH_ROOT"')
 assert_eq "rb -c sees REBASH_ROOT" "$got" "$prefix/share/rebash"
 
-assert_success "git plug is staged" test -f "$prefix/share/rebash/plugs/git/plug.bash"
+assert_success "git plugin is staged" test -f "$prefix/share/rebash/plugins/git/plugin.bash"
 
 test_home="$WORK/home"
 mkdir -p "$test_home"
@@ -192,18 +192,18 @@ rb() {
 assert_failure "gs alias absent before up" rb -c 'alias gs'
 assert_failure "rb up without a name" rb up
 assert_contains "up usage mentions git" "$STDERR$STDOUT" "git"
-assert_failure "rb up unknown plug" rb up nope
+assert_failure "rb up unknown plugin" rb up nope
 assert_failure "rb up path traversal" rb up '../git'
 assert_failure "rb up extra args" rb up git extra
 
 assert_success "rb up git" rb up git
 assert_eq "up git message" "$STDOUT" "up git"
-assert_success "enabled list exists" test -f "$test_home/.config/rebash/plugs"
-assert_eq "enabled list is git" "$(cat "$test_home/.config/rebash/plugs")" "git"
+assert_success "enabled list exists" test -f "$test_home/.config/rebash/plugins"
+assert_eq "enabled list is git" "$(cat "$test_home/.config/rebash/plugins")" "git"
 
 assert_success "rb up git is idempotent" rb up git
 assert_eq "idempotent up git message" "$STDOUT" "up git"
-assert_eq "enabled list has one line" "$(grep -c '^git$' "$test_home/.config/rebash/plugs")" "1"
+assert_eq "enabled list has one line" "$(grep -c '^git$' "$test_home/.config/rebash/plugins")" "1"
 
 assert_success "gs alias after up" rb -c 'alias gs'
 assert_contains "gs is git status" "$STDOUT" "git status"

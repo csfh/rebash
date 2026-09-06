@@ -176,9 +176,9 @@ stage() {
   require_command install
   install -Dm755 "$source/bin/${BIN}" "$dest/bin/${BIN}"
   install -Dm644 "$source/bashrc" "$dest/bashrc"
-  if [[ -d "$source/plugs" ]]; then
-    rm -rf "$dest/plugs"
-    cp -a "$source/plugs" "$dest/plugs"
+  if [[ -d "$source/plugins" ]]; then
+    rm -rf "$dest/plugins"
+    cp -a "$source/plugins" "$dest/plugins"
   fi
   write_revision "$dest" "$source"
 }

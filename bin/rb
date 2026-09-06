@@ -12,13 +12,13 @@ die() {
 usage() {
   cat <<'EOF'
 Usage: rb [bash-args...]
-       rb up <plug>
+       rb up <plugin>
        rb --help
        rb --version
 
 Start bash with rebash loaded. Extra arguments go to bash.
 
-  up <plug>   Enable a plug, for example: rb up git
+  up <plugin>   Enable a plugin, for example: rb up git
 EOF
 }
 
@@ -35,19 +35,19 @@ version() {
   fi
 }
 
-valid_plug_name() {
+valid_plugin_name() {
   [[ $1 =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
 }
 
-plug_file() {
-  printf '%s\n' "$ROOT/plugs/$1/plug.bash"
+plugin_file() {
+  printf '%s\n' "$ROOT/plugins/$1/plugin.bash"
 }
 
 enabled_file() {
-  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/rebash/plugs"
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/rebash/plugins"
 }
 
-plug_is_enabled() {
+plugin_is_enabled() {
   local name=$1 file line
   file=$(enabled_file)
   [[ -r "$file" ]] || return 1
@@ -57,11 +57,11 @@ plug_is_enabled() {
   return 1
 }
 
-list_available_plugs() {
+list_available_plugins() {
   local dir f name
-  dir="$ROOT/plugs"
+  dir="$ROOT/plugins"
   [[ -d "$dir" ]] || return 0
-  for f in "$dir"/*/plug.bash; do
+  for f in "$dir"/*/plugin.bash; do
     [[ -f "$f" ]] || continue
     name=${f%/*}
     name=${name##*/}
@@ -71,12 +71,12 @@ list_available_plugs() {
 
 up_usage() {
   cat <<'EOF'
-Usage: rb up <plug>
+Usage: rb up <plugin>
 EOF
   local available
-  available=$(list_available_plugs)
+  available=$(list_available_plugins)
   if [[ -n $available ]]; then
-    printf '\nPlugs:\n'
+    printf '\nPlugins:\n'
     printf '%s\n' "$available" | sed 's/^/  /'
   fi
 }
@@ -87,16 +87,16 @@ cmd_up() {
     exit 1
   fi
   if [[ $# -ne 1 ]]; then
-    die "up takes one plug name"
+    die "up takes one plugin name"
   fi
 
   local name=$1 file dest dir
-  valid_plug_name "$name" || die "invalid plug name: ${name}"
-  file=$(plug_file "$name")
-  [[ -f $file ]] || die "plug not found: ${name}"
+  valid_plugin_name "$name" || die "invalid plugin name: ${name}"
+  file=$(plugin_file "$name")
+  [[ -f "$file" ]] || die "plugin not found: ${name}"
 
   dest=$(enabled_file)
-  if plug_is_enabled "$name"; then
+  if plugin_is_enabled "$name"; then
     printf 'up %s\n' "$name"
     return 0
   fi
