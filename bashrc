@@ -5,9 +5,7 @@ if [[ ${REBASH:-0} == 1 ]]; then
   return 0 2>/dev/null || exit 0
 fi
 
-if [[ -z ${REBASH_ROOT:-} ]]; then
-  REBASH_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-fi
+REBASH_ROOT=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 export REBASH_ROOT
 
 if [[ $- == *i* && ${REBASH_SKIP_USER_RC:-0} != 1 && -f "${HOME}/.bashrc" ]]; then

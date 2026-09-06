@@ -1,9 +1,7 @@
 # Load enabled rebash plugins into the current bash. Safe to source from
 # ~/.bashrc. Does not source the user's bashrc.
 
-if [[ -z ${REBASH_ROOT:-} ]]; then
-  REBASH_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-fi
+REBASH_ROOT=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 export REBASH_ROOT
 
 rebash_load_plugins() {

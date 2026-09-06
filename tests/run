@@ -239,6 +239,18 @@ else
   fail_msg "init.bash loads gs"
 fi
 
+if run_capture env HOME="$test_home" XDG_CONFIG_HOME="$test_home/.config" \
+  bash -c '
+    cd() { printf "hook %s\n" "$PWD"; builtin cd "$@"; }
+    pwd() { printf "hook %s\n" "$PWD"; }
+    source "$1"
+    printf "%s\n" "$REBASH_ROOT"
+  ' x "$prefix/share/rebash/init.bash"; then
+  assert_eq "init.bash ignores cd/pwd wrappers" "$STDOUT" "$prefix/share/rebash"
+else
+  fail_msg "init.bash ignores cd/pwd wrappers"
+fi
+
 unset -f rb
 
 assert_success "reinstall overwrites" "$INSTALL_SH" --prefix "$prefix"
