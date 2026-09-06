@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
+ROOT=$(cd -- "$(dirname -- "$SCRIPT")/.." && pwd)
+
+usage() {
+  cat <<'EOF'
+Usage: rb [bash-args...]
+       rb --help
+       rb --version
+
+Start bash with rebash loaded. Extra arguments go to bash.
+EOF
+}
+
+version() {
+  local rev=""
+  if [[ -r $ROOT/REVISION ]]; then
+    rev=$(<"$ROOT/REVISION")
+    rev=${rev%%$'\n'*}
+  fi
+  if [[ -n $rev ]]; then
+    printf 'rebash %s\n' "$rev"
+  else
+    printf 'rebash\n'
+  fi
+}
+
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --version)
+    version
+    exit 0
+    ;;
+esac
+
+if [[ ! -f $ROOT/bashrc ]]; then
+  printf 'rb: missing %s\n' "$ROOT/bashrc" >&2
+  exit 1
+fi
+
+export REBASH_ROOT=$ROOT
+export BASH_ENV=$ROOT/bashrc
+exec bash --rcfile "$ROOT/bashrc" "$@"

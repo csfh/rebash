@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd)
+INSTALL_SH="$ROOT/install.sh"
+RB_SRC="$ROOT/bin/rb"
+pass=0
+fail=0
+
+fail_msg() {
+  printf 'FAIL %s\n' "$*" >&2
+  if [[ -n "${STDOUT:-}" ]]; then
+    printf 'stdout:\n%s\n' "$STDOUT" >&2
+  fi
+  if [[ -n "${STDERR:-}" ]]; then
+    printf 'stderr:\n%s\n' "$STDERR" >&2
+  fi
+  fail=$((fail + 1))
+}
+
+pass_msg() {
+  pass=$((pass + 1))
+}
+
+run_capture() {
+  local status
+  STDOUT=""
+  STDERR=""
+  set +e
+  STDOUT=$( "$@" 2>"$WORK/stderr" )
+  status=$?
+  set -e
+  STDERR=$(cat "$WORK/stderr")
+  return "$status"
+}
+
+source_install() {
+  local body=$1
+  INSTALL_SH="$INSTALL_SH" bash -c 'set -euo pipefail; source "$INSTALL_SH"; '"$body"
+}
+
+assert_success() {
+  local desc=$1
+  shift
+  if run_capture "$@"; then
+    pass_msg
+  else
+    fail_msg "$desc (exit $?)"
+  fi
+}
+
+assert_failure() {
+  local desc=$1
+  shift
+  if run_capture "$@"; then
+    fail_msg "$desc (expected failure)"
+  else
+    pass_msg
+  fi
+}
+
+assert_eq() {
+  local desc=$1
+  local got=$2
+  local expected=$3
+  if [[ $got == "$expected" ]]; then
+    pass_msg
+  else
+    STDOUT=$got
+    STDERR="expected: $expected"
+    fail_msg "$desc"
+  fi
+}
+
+assert_contains() {
+  local desc=$1
+  local haystack=$2
+  local needle=$3
+  if [[ $haystack == *"$needle"* ]]; then
+    pass_msg
+  else
+    STDOUT=$haystack
+    STDERR="missing: $needle"
+    fail_msg "$desc"
+  fi
+}
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+assert_success "bash -n install.sh" bash -n "$INSTALL_SH"
+assert_success "bash -n bin/rb" bash -n "$RB_SRC"
+assert_success "bash -n bashrc" bash -n "$ROOT/bashrc"
+assert_success "bash -n tests/run" bash -n "$ROOT/tests/run"
+
+assert_success "install.sh --help" "$INSTALL_SH" --help
+assert_contains "help mentions --prefix" "$STDOUT" "--prefix"
+assert_contains "help mentions --uninstall" "$STDOUT" "--uninstall"
+assert_contains "help mentions rb" "$STDOUT" "rb"
+
+assert_failure "unknown option" "$INSTALL_SH" --nope
+
+help_pipe_status=0
+set +e
+STDOUT=$(bash -s -- --help <"$INSTALL_SH")
+help_pipe_status=$?
+set -e
+if [[ $help_pipe_status -eq 0 && $STDOUT == *"--prefix"* ]]; then
+  pass_msg
+else
+  fail_msg "piped --help"
+fi
+
+if run_capture source_install 'destination_path /usr/local/'; then
+  assert_eq "destination_path" "$STDOUT" "/usr/local/bin/rb"
+else
+  fail_msg "destination_path"
+fi
+
+if run_capture source_install 'destination_path /usr/local'; then
+  assert_eq "destination_path without trailing slash" "$STDOUT" "/usr/local/bin/rb"
+else
+  fail_msg "destination_path without trailing slash"
+fi
+
+if run_capture source_install 'data_path /usr/local/'; then
+  assert_eq "data_path" "$STDOUT" "/usr/local/share/rebash"
+else
+  fail_msg "data_path"
+fi
+
+if run_capture source_install '
+  unset PREFIX ACTION
+  HOME=/tmp/rebash-home
+  parse_args
+  printf "%s %s\n" "$ACTION" "$PREFIX"
+'; then
+  assert_eq "parse_args defaults" "$STDOUT" "install /tmp/rebash-home/.local"
+else
+  fail_msg "parse_args defaults"
+fi
+
+if run_capture source_install '
+  parse_args --prefix /usr/local
+  printf "%s %s\n" "$ACTION" "$PREFIX"
+'; then
+  assert_eq "parse_args --prefix" "$STDOUT" "install /usr/local"
+else
+  fail_msg "parse_args --prefix"
+fi
+
+if run_capture source_install '
+  parse_args --uninstall --prefix /opt
+  printf "%s %s\n" "$ACTION" "$PREFIX"
+'; then
+  assert_eq "parse_args --uninstall" "$STDOUT" "uninstall /opt"
+else
+  fail_msg "parse_args --uninstall"
+fi
+
+prefix="$WORK/local"
+assert_success "install to prefix" "$INSTALL_SH" --prefix "$prefix"
+assert_success "wrapper exists" test -x "$prefix/bin/rb"
+assert_success "staged rb exists" test -x "$prefix/share/rebash/bin/rb"
+assert_success "bashrc staged" test -f "$prefix/share/rebash/bashrc"
+
+got=$(PATH="$prefix/bin" command -v rb)
+assert_eq "rb is on PATH" "$got" "$prefix/bin/rb"
+
+assert_success "installed rb --help" "$prefix/bin/rb" --help
+assert_contains "installed help mentions bash" "$STDOUT" "bash"
+
+assert_success "installed rb --version" "$prefix/bin/rb" --version
+assert_contains "version starts with rebash" "$STDOUT" "rebash"
+
+got=$(PATH="$prefix/bin:$PATH" rb -c 'printf %s "$REBASH"')
+assert_eq "rb -c sees REBASH" "$got" "1"
+
+got=$(PATH="$prefix/bin:$PATH" rb -c 'printf %s "$REBASH_ROOT"')
+assert_eq "rb -c sees REBASH_ROOT" "$got" "$prefix/share/rebash"
+
+assert_success "reinstall overwrites" "$INSTALL_SH" --prefix "$prefix"
+
+assert_success "uninstall" "$INSTALL_SH" --uninstall --prefix "$prefix"
+assert_success "wrapper removed" test ! -e "$prefix/bin/rb"
+assert_success "data dir removed" test ! -e "$prefix/share/rebash"
+
+fixture="$WORK/fixture"
+mkdir -p "$fixture/bin"
+cp "$RB_SRC" "$fixture/bin/rb"
+cp "$ROOT/bashrc" "$fixture/bashrc"
+chmod +x "$fixture/bin/rb"
+git -C "$fixture" init -q
+git -C "$fixture" add bin/rb bashrc
+git -C "$fixture" \
+  -c user.name=rebash \
+  -c user.email=rebash@example.test \
+  commit -q -m "fixture"
+
+piped_home="$WORK/piped-home"
+mkdir -p "$piped_home"
+piped_prefix="$piped_home/.local"
+set +e
+STDOUT=$(
+  HOME="$piped_home" \
+    XDG_CACHE_HOME="$piped_home/.cache" \
+    REBASH_REPO="$fixture" \
+    bash -s -- --prefix "$piped_prefix" <"$INSTALL_SH"
+)
+piped_status=$?
+set -e
+if [[ $piped_status -eq 0 && -x $piped_prefix/bin/rb ]]; then
+  pass_msg
+else
+  fail_msg "piped install from REBASH_REPO"
+fi
+
+got=$(PATH="$piped_prefix/bin" command -v rb)
+assert_eq "piped install puts rb on PATH" "$got" "$piped_prefix/bin/rb"
+assert_success "piped install cache stays under test HOME" test -d "$piped_home/.cache/rebash/src"
+assert_success "piped install does not write user cache" test ! -e "${XDG_CACHE_HOME:-$HOME/.cache}/rebash"
+
+printf '%s passed, %s failed\n' "$pass" "$fail"
+if [[ $fail -ne 0 ]]; then
+  exit 1
+fi
