@@ -7,6 +7,7 @@ REPO="csfh/rebash"
 BIN="rb"
 PREFIX=""
 ACTION=""
+CHANNEL=""
 
 die() {
   printf 'install.sh: %s\n' "$*" >&2
@@ -18,17 +19,20 @@ usage() {
 Install rebash and place rb on PATH.
 
 Usage:
-  install.sh [--prefix DIR]
+  install.sh [--prefix DIR] [--channel CHANNEL]
+  install.sh --update [--prefix DIR] [--channel CHANNEL]
   install.sh --uninstall [--prefix DIR]
   install.sh --help
 
 Default prefix: ~/.local
+Default channel: main (or the channel already installed, for --update)
 Installs the rb command to ~/.local/bin/rb
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/csfh/rebash/main/install.sh | bash
   ./install.sh
-  ./install.sh --prefix /usr/local
+  ./install.sh --prefix /usr/local --channel alpha
+  ./install.sh --update
   ./install.sh --uninstall
 EOF
 }
@@ -47,13 +51,33 @@ cache_path() {
   printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/rebash/src"
 }
 
+valid_channel_name() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
 repo_url() {
-  printf '%s\n' "${REBASH_REPO:-https://github.com/${REPO}.git}"
+  local repo=${REBASH_REPO:-https://github.com/${REPO}.git}
+  if [[ -d "$repo" ]]; then
+    (cd -- "$repo" && pwd)
+    return
+  fi
+  printf '%s\n' "$repo"
+}
+
+read_trimmed() {
+  local file=$1
+  local value=""
+  [[ -r "$file" ]] || return 1
+  value=$(<"$file")
+  value=${value%%$'\n'*}
+  [[ -n $value ]] || return 1
+  printf '%s\n' "$value"
 }
 
 parse_args() {
   PREFIX="${PREFIX:-$HOME/.local}"
   ACTION="install"
+  CHANNEL="${CHANNEL:-}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -61,6 +85,15 @@ parse_args() {
         [[ $# -ge 2 && -n "$2" ]] || die "--prefix requires a directory"
         PREFIX="$2"
         shift 2
+        ;;
+      --channel)
+        [[ $# -ge 2 && -n "$2" ]] || die "--channel requires a value"
+        CHANNEL="$2"
+        shift 2
+        ;;
+      --update)
+        ACTION="update"
+        shift
         ;;
       --uninstall)
         ACTION="uninstall"
@@ -112,27 +145,33 @@ local_source() {
 clone_repo() {
   local repo=$1
   local cache=$2
+  local channel=$3
   if [[ -d "$repo" ]]; then
-    git clone --depth 1 "file://$(cd -- "$repo" && pwd)" "$cache" || die "could not clone ${repo}"
+    git clone --depth 1 --branch "$channel" "file://$(cd -- "$repo" && pwd)" "$cache" >&2 \
+      || die "could not clone ${repo} (channel ${channel})"
     return
   fi
-  git clone --depth 1 "$repo" "$cache" || die "could not clone ${repo}"
+  git clone --depth 1 --branch "$channel" "$repo" "$cache" >&2 \
+    || die "could not clone ${repo} (channel ${channel})"
 }
 
 sync_cache() {
+  local channel=$1
   local cache repo
+  [[ -n $channel ]] || die "channel must not be empty"
+  valid_channel_name "$channel" || die "invalid channel: ${channel}"
   require_command git
   cache=$(cache_path)
   repo=$(repo_url)
   mkdir -p "$(dirname -- "$cache")"
   if [[ ! -d "$cache/.git" ]]; then
-    clone_repo "$repo" "$cache"
+    clone_repo "$repo" "$cache" "$channel"
     printf '%s\n' "$cache"
     return
   fi
   git -C "$cache" remote set-url origin "$repo"
-  git -C "$cache" fetch --depth 1 origin
-  git -C "$cache" checkout -B "$(git -C "$cache" rev-parse --abbrev-ref HEAD)" FETCH_HEAD
+  git -C "$cache" fetch --depth 1 origin "$channel" >&2 || die "channel not found: ${channel}"
+  git -C "$cache" checkout -B "$channel" FETCH_HEAD >&2
   printf '%s\n' "$cache"
 }
 
@@ -142,7 +181,7 @@ resolve_source() {
     printf '%s\n' "$source"
     return
   fi
-  sync_cache
+  sync_cache "$CHANNEL"
 }
 
 write_revision() {
@@ -176,11 +215,16 @@ stage() {
   require_command install
   install -Dm755 "$source/bin/${BIN}" "$dest/bin/${BIN}"
   install -Dm644 "$source/bashrc" "$dest/bashrc"
+  if [[ -f "$source/install.sh" ]]; then
+    install -Dm755 "$source/install.sh" "$dest/install.sh"
+  fi
   if [[ -d "$source/plugins" ]]; then
     rm -rf "$dest/plugins"
     cp -a "$source/plugins" "$dest/plugins"
   fi
   write_revision "$dest" "$source"
+  printf '%s\n' "$CHANNEL" >"$dest/CHANNEL"
+  printf '%s\n' "$(repo_url)" >"$dest/REPO"
 }
 
 uninstall() {
@@ -199,11 +243,31 @@ uninstall() {
   fi
 }
 
+resolve_channel() {
+  local dest
+  dest=$(data_path "$PREFIX")
+  if [[ -z $CHANNEL && $ACTION == update ]]; then
+    CHANNEL=$(read_trimmed "$dest/CHANNEL" || true)
+  fi
+  CHANNEL=${CHANNEL:-main}
+  valid_channel_name "$CHANNEL" || die "invalid channel: ${CHANNEL}"
+}
+
 install_rebash() {
-  local source dest wrapper
-  source=$(resolve_source)
+  local source dest wrapper sha
+  resolve_channel
   dest=$(data_path "$PREFIX")
   wrapper=$(destination_path "$PREFIX")
+
+  if [[ $ACTION == update ]]; then
+    [[ -x "$dest/bin/${BIN}" ]] || die "rebash is not installed at ${dest}; run install.sh first"
+    if [[ -z ${REBASH_REPO:-} && -r "$dest/REPO" ]]; then
+      REBASH_REPO=$(read_trimmed "$dest/REPO")
+    fi
+    source=$(sync_cache "$CHANNEL")
+  else
+    source=$(resolve_source)
+  fi
 
   mkdir -p "$(dirname -- "$wrapper")" "$(dirname -- "$dest")"
   [[ -w "$(dirname -- "$wrapper")" ]] || die "cannot write to $(dirname -- "$wrapper"); choose another --prefix or rerun with write access"
@@ -213,7 +277,16 @@ install_rebash() {
 
   [[ -x "$wrapper" ]] || die "failed to install ${wrapper}"
   warn_if_not_on_path "$(dirname -- "$wrapper")"
-  printf 'installed %s to %s\n' "$BIN" "$wrapper"
+  sha=$(read_trimmed "$dest/REVISION" || true)
+  if [[ $ACTION == update ]]; then
+    if [[ -n $sha ]]; then
+      printf 'updated %s %s\n' "$CHANNEL" "$sha"
+    else
+      printf 'updated %s\n' "$CHANNEL"
+    fi
+  else
+    printf 'installed %s to %s\n' "$BIN" "$wrapper"
+  fi
 }
 
 main() {
@@ -225,7 +298,7 @@ main() {
     uninstall)
       uninstall
       ;;
-    install)
+    install | update)
       install_rebash
       ;;
     *)

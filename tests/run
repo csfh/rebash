@@ -159,11 +159,22 @@ else
   fail_msg "parse_args --uninstall"
 fi
 
+if run_capture source_install '
+  parse_args --update --channel alpha --prefix /opt
+  printf "%s %s %s\n" "$ACTION" "$PREFIX" "$CHANNEL"
+'; then
+  assert_eq "parse_args --update --channel" "$STDOUT" "update /opt alpha"
+else
+  fail_msg "parse_args --update --channel"
+fi
+
 prefix="$WORK/local"
 assert_success "install to prefix" "$INSTALL_SH" --prefix "$prefix"
 assert_success "wrapper exists" test -x "$prefix/bin/rb"
 assert_success "staged rb exists" test -x "$prefix/share/rebash/bin/rb"
 assert_success "bashrc staged" test -f "$prefix/share/rebash/bashrc"
+assert_success "install.sh staged" test -x "$prefix/share/rebash/install.sh"
+assert_eq "installed channel is main" "$(cat "$prefix/share/rebash/CHANNEL")" "main"
 
 got=$(PATH="$prefix/bin" command -v rb)
 assert_eq "rb is on PATH" "$got" "$prefix/bin/rb"
@@ -171,9 +182,11 @@ assert_eq "rb is on PATH" "$got" "$prefix/bin/rb"
 assert_success "installed rb --help" "$prefix/bin/rb" --help
 assert_contains "installed help mentions bash" "$STDOUT" "bash"
 assert_contains "installed help mentions up" "$STDOUT" "rb up"
+assert_contains "installed help mentions update" "$STDOUT" "rb update"
 
 assert_success "installed rb --version" "$prefix/bin/rb" --version
 assert_contains "version starts with rebash" "$STDOUT" "rebash"
+assert_contains "version mentions main" "$STDOUT" "(main)"
 
 got=$(PATH="$prefix/bin:$PATH" rb -c 'printf %s "$REBASH"')
 assert_eq "rb -c sees REBASH" "$got" "1"
@@ -225,7 +238,7 @@ mkdir -p "$fixture/bin"
 cp "$RB_SRC" "$fixture/bin/rb"
 cp "$ROOT/bashrc" "$fixture/bashrc"
 chmod +x "$fixture/bin/rb"
-git -C "$fixture" init -q
+git -C "$fixture" init -q -b main
 git -C "$fixture" add bin/rb bashrc
 git -C "$fixture" \
   -c user.name=rebash \
@@ -254,6 +267,86 @@ got=$(PATH="$piped_prefix/bin" command -v rb)
 assert_eq "piped install puts rb on PATH" "$got" "$piped_prefix/bin/rb"
 assert_success "piped install cache stays under test HOME" test -d "$piped_home/.cache/rebash/src"
 assert_success "piped install does not write user cache" test ! -e "${XDG_CACHE_HOME:-$HOME/.cache}/rebash"
+
+git_commit() {
+  local repo=$1
+  local message=$2
+  git -C "$repo" \
+    -c user.name=rebash \
+    -c user.email=rebash@example.test \
+    commit -q -m "$message"
+}
+
+update_repo="$WORK/update-repo"
+mkdir -p "$update_repo/bin" "$update_repo/plugins/git"
+cp "$INSTALL_SH" "$update_repo/install.sh"
+cp "$RB_SRC" "$update_repo/bin/rb"
+cp "$ROOT/bashrc" "$update_repo/bashrc"
+cp "$ROOT/plugins/git/plugin.bash" "$update_repo/plugins/git/plugin.bash"
+chmod +x "$update_repo/install.sh" "$update_repo/bin/rb"
+git -C "$update_repo" init -q -b main
+git -C "$update_repo" add install.sh bin bashrc plugins
+git_commit "$update_repo" "main"
+git -C "$update_repo" checkout -q -b alpha
+printf 'alpha-marker\n' >"$update_repo/plugins/git/alpha"
+git -C "$update_repo" add plugins/git/alpha
+git_commit "$update_repo" "alpha"
+git -C "$update_repo" checkout -q main
+
+update_home="$WORK/update-home"
+mkdir -p "$update_home"
+update_prefix="$update_home/.local"
+set +e
+STDOUT=$(
+  HOME="$update_home" \
+    XDG_CACHE_HOME="$update_home/.cache" \
+    REBASH_REPO="$update_repo" \
+    bash -s -- --prefix "$update_prefix" <"$INSTALL_SH"
+)
+update_install_status=$?
+set -e
+if [[ $update_install_status -eq 0 && -x $update_prefix/bin/rb ]]; then
+  pass_msg
+else
+  fail_msg "channel fixture install"
+fi
+
+assert_eq "fixture channel is main" "$(cat "$update_prefix/share/rebash/CHANNEL")" "main"
+assert_success "alpha marker absent on main" test ! -e "$update_prefix/share/rebash/plugins/git/alpha"
+
+rb_update() {
+  env HOME="$update_home" \
+    XDG_CACHE_HOME="$update_home/.cache" \
+    PATH="$update_prefix/bin:$PATH" \
+    "$update_prefix/bin/rb" "$@"
+}
+
+assert_failure "rb update extra args" rb_update update main extra
+assert_failure "rb update invalid channel" rb_update update '../main'
+assert_failure "rb update missing channel" rb_update update nosuch
+
+assert_success "rb update alpha" rb_update update alpha
+assert_contains "update alpha message" "$STDOUT" "updated alpha"
+assert_eq "channel file is alpha" "$(cat "$update_prefix/share/rebash/CHANNEL")" "alpha"
+assert_success "alpha marker present" test -f "$update_prefix/share/rebash/plugins/git/alpha"
+assert_success "version on alpha" rb_update --version
+assert_contains "version mentions alpha" "$STDOUT" "(alpha)"
+
+printf 'alpha-again\n' >"$update_repo/plugins/git/alpha2"
+git -C "$update_repo" checkout -q alpha
+git -C "$update_repo" add plugins/git/alpha2
+git_commit "$update_repo" "alpha 2"
+git -C "$update_repo" checkout -q main
+
+assert_success "rb update current channel" rb_update update
+assert_contains "update keeps alpha" "$STDOUT" "updated alpha"
+assert_success "second alpha marker present" test -f "$update_prefix/share/rebash/plugins/git/alpha2"
+
+assert_success "rb update main" rb_update update main
+assert_eq "channel file is main again" "$(cat "$update_prefix/share/rebash/CHANNEL")" "main"
+assert_success "alpha marker gone on main" test ! -e "$update_prefix/share/rebash/plugins/git/alpha"
+
+unset -f rb_update git_commit
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 if [[ $fail -ne 0 ]]; then
