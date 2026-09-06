@@ -4,19 +4,27 @@ set -euo pipefail
 SCRIPT=$(readlink -f -- "${BASH_SOURCE[0]}")
 ROOT=$(cd -- "$(dirname -- "$SCRIPT")/.." && pwd)
 
+die() {
+  printf 'rb: %s\n' "$*" >&2
+  exit 1
+}
+
 usage() {
   cat <<'EOF'
 Usage: rb [bash-args...]
+       rb up <plug>
        rb --help
        rb --version
 
 Start bash with rebash loaded. Extra arguments go to bash.
+
+  up <plug>   Enable a plug, for example: rb up git
 EOF
 }
 
 version() {
   local rev=""
-  if [[ -r $ROOT/REVISION ]]; then
+  if [[ -r "$ROOT/REVISION" ]]; then
     rev=$(<"$ROOT/REVISION")
     rev=${rev%%$'\n'*}
   fi
@@ -25,6 +33,78 @@ version() {
   else
     printf 'rebash\n'
   fi
+}
+
+valid_plug_name() {
+  [[ $1 =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+plug_file() {
+  printf '%s\n' "$ROOT/plugs/$1/plug.bash"
+}
+
+enabled_file() {
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/rebash/plugs"
+}
+
+plug_is_enabled() {
+  local name=$1 file line
+  file=$(enabled_file)
+  [[ -r "$file" ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == "$name" ]] && return 0
+  done <"$file"
+  return 1
+}
+
+list_available_plugs() {
+  local dir f name
+  dir="$ROOT/plugs"
+  [[ -d "$dir" ]] || return 0
+  for f in "$dir"/*/plug.bash; do
+    [[ -f "$f" ]] || continue
+    name=${f%/*}
+    name=${name##*/}
+    printf '%s\n' "$name"
+  done | sort
+}
+
+up_usage() {
+  cat <<'EOF'
+Usage: rb up <plug>
+EOF
+  local available
+  available=$(list_available_plugs)
+  if [[ -n $available ]]; then
+    printf '\nPlugs:\n'
+    printf '%s\n' "$available" | sed 's/^/  /'
+  fi
+}
+
+cmd_up() {
+  if [[ $# -eq 0 ]]; then
+    up_usage >&2
+    exit 1
+  fi
+  if [[ $# -ne 1 ]]; then
+    die "up takes one plug name"
+  fi
+
+  local name=$1 file dest dir
+  valid_plug_name "$name" || die "invalid plug name: ${name}"
+  file=$(plug_file "$name")
+  [[ -f $file ]] || die "plug not found: ${name}"
+
+  dest=$(enabled_file)
+  if plug_is_enabled "$name"; then
+    printf 'up %s\n' "$name"
+    return 0
+  fi
+
+  dir=$(dirname -- "$dest")
+  mkdir -p "$dir"
+  printf '%s\n' "$name" >>"$dest"
+  printf 'up %s\n' "$name"
 }
 
 case "${1:-}" in
@@ -36,9 +116,14 @@ case "${1:-}" in
     version
     exit 0
     ;;
+  up)
+    shift
+    cmd_up "$@"
+    exit 0
+    ;;
 esac
 
-if [[ ! -f $ROOT/bashrc ]]; then
+if [[ ! -f "$ROOT/bashrc" ]]; then
   printf 'rb: missing %s\n' "$ROOT/bashrc" >&2
   exit 1
 fi

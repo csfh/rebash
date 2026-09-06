@@ -91,6 +91,7 @@ trap 'rm -rf "$WORK"' EXIT
 assert_success "bash -n install.sh" bash -n "$INSTALL_SH"
 assert_success "bash -n bin/rb" bash -n "$RB_SRC"
 assert_success "bash -n bashrc" bash -n "$ROOT/bashrc"
+assert_success "bash -n plugs/git/plug.bash" bash -n "$ROOT/plugs/git/plug.bash"
 assert_success "bash -n tests/run" bash -n "$ROOT/tests/run"
 
 assert_success "install.sh --help" "$INSTALL_SH" --help
@@ -169,6 +170,7 @@ assert_eq "rb is on PATH" "$got" "$prefix/bin/rb"
 
 assert_success "installed rb --help" "$prefix/bin/rb" --help
 assert_contains "installed help mentions bash" "$STDOUT" "bash"
+assert_contains "installed help mentions up" "$STDOUT" "rb up"
 
 assert_success "installed rb --version" "$prefix/bin/rb" --version
 assert_contains "version starts with rebash" "$STDOUT" "rebash"
@@ -178,6 +180,39 @@ assert_eq "rb -c sees REBASH" "$got" "1"
 
 got=$(PATH="$prefix/bin:$PATH" rb -c 'printf %s "$REBASH_ROOT"')
 assert_eq "rb -c sees REBASH_ROOT" "$got" "$prefix/share/rebash"
+
+assert_success "git plug is staged" test -f "$prefix/share/rebash/plugs/git/plug.bash"
+
+test_home="$WORK/home"
+mkdir -p "$test_home"
+rb() {
+  env HOME="$test_home" XDG_CONFIG_HOME="$test_home/.config" PATH="$prefix/bin:$PATH" "$prefix/bin/rb" "$@"
+}
+
+assert_failure "gs alias absent before up" rb -c 'alias gs'
+assert_failure "rb up without a name" rb up
+assert_contains "up usage mentions git" "$STDERR$STDOUT" "git"
+assert_failure "rb up unknown plug" rb up nope
+assert_failure "rb up path traversal" rb up '../git'
+assert_failure "rb up extra args" rb up git extra
+
+assert_success "rb up git" rb up git
+assert_eq "up git message" "$STDOUT" "up git"
+assert_success "enabled list exists" test -f "$test_home/.config/rebash/plugs"
+assert_eq "enabled list is git" "$(cat "$test_home/.config/rebash/plugs")" "git"
+
+assert_success "rb up git is idempotent" rb up git
+assert_eq "idempotent up git message" "$STDOUT" "up git"
+assert_eq "enabled list has one line" "$(grep -c '^git$' "$test_home/.config/rebash/plugs")" "1"
+
+assert_success "gs alias after up" rb -c 'alias gs'
+assert_contains "gs is git status" "$STDOUT" "git status"
+assert_success "g alias after up" rb -c 'alias g'
+assert_contains "g is git" "$STDOUT" "alias g='git'"
+assert_success "gco alias after up" rb -c 'alias gco'
+assert_contains "gco is git checkout" "$STDOUT" "git checkout"
+
+unset -f rb
 
 assert_success "reinstall overwrites" "$INSTALL_SH" --prefix "$prefix"
 
