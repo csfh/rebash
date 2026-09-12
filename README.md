@@ -23,7 +23,7 @@ That puts `rb` on `~/.local/bin`. From a clone, `./install.sh` does the same.
 rb up git
 ```
 
-That enables the git plugin, a set of bash aliases for git (`gs`, `gco`, `gl`, and the rest). `install.sh` adds a block to `~/.bashrc` so those aliases load in new shells. In the current shell:
+That enables the git plugin: the [Oh My Zsh git aliases](https://github.com/ohmyzsh/ohmyzsh/blob/master/plugins/git/README.md), ported to bash (`gst`, `gco`, `gcmsg`, `gl`, and the rest). `install.sh` adds a block to `~/.bashrc` so those aliases load in new shells. In the current shell:
 
 ```bash
 source ~/.local/share/rebash/init.bash

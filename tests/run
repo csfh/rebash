@@ -209,7 +209,7 @@ rb() {
   env HOME="$test_home" XDG_CONFIG_HOME="$test_home/.config" PATH="$prefix/bin:$PATH" "$prefix/bin/rb" "$@"
 }
 
-assert_failure "gs alias absent before up" rb -c 'alias gs'
+assert_failure "gst alias absent before up" rb -c 'alias gst'
 assert_failure "rb up without a name" rb up
 assert_contains "up usage mentions git" "$STDERR$STDOUT" "git"
 assert_failure "rb up unknown plugin" rb up nope
@@ -225,18 +225,27 @@ assert_success "rb up git is idempotent" rb up git
 assert_eq "idempotent up git message" "$STDOUT" "up git"
 assert_eq "enabled list has one line" "$(grep -c '^git$' "$test_home/.config/rebash/plugins")" "1"
 
-assert_success "gs alias after up" rb -c 'alias gs'
-assert_contains "gs is git status" "$STDOUT" "git status"
+assert_success "gst alias after up" rb -c 'alias gst'
+assert_contains "gst is git status" "$STDOUT" "git status"
 assert_success "g alias after up" rb -c 'alias g'
 assert_contains "g is git" "$STDOUT" "alias g='git'"
 assert_success "gco alias after up" rb -c 'alias gco'
 assert_contains "gco is git checkout" "$STDOUT" "git checkout"
+assert_success "gcmsg alias after up" rb -c 'alias gcmsg'
+assert_contains "gcmsg is git commit --message" "$STDOUT" "git commit --message"
+assert_success "gcm alias after up" rb -c 'alias gcm'
+assert_contains "gcm is git checkout main branch" "$STDOUT" "git checkout"
+assert_contains "gcm uses git_main_branch" "$STDOUT" "git_main_branch"
+assert_success "gl alias after up" rb -c 'alias gl'
+assert_contains "gl is git pull" "$STDOUT" "git pull"
+assert_success "gapa alias after up" rb -c 'alias gapa'
+assert_contains "gapa is git add --patch" "$STDOUT" "git add --patch"
 
 if run_capture env HOME="$test_home" XDG_CONFIG_HOME="$test_home/.config" \
-  bash -c 'source "$1"; alias gs' x "$prefix/share/rebash/init.bash"; then
-  assert_contains "init.bash loads gs" "$STDOUT" "git status"
+  bash -c 'source "$1"; alias gst' x "$prefix/share/rebash/init.bash"; then
+  assert_contains "init.bash loads gst" "$STDOUT" "git status"
 else
-  fail_msg "init.bash loads gs"
+  fail_msg "init.bash loads gst"
 fi
 
 if run_capture env HOME="$test_home" XDG_CONFIG_HOME="$test_home/.config" \
@@ -252,6 +261,23 @@ else
 fi
 
 unset -f rb
+
+omz_repo="$WORK/omz-git"
+mkdir -p "$omz_repo"
+git -C "$omz_repo" init -q -b main
+git -C "$omz_repo" \
+  -c user.name=rebash \
+  -c user.email=rebash@example.test \
+  commit --allow-empty -q -m init
+if run_capture bash -c '
+  cd "$1"
+  source "$2"
+  printf "%s %s\n" "$(git_main_branch)" "$(git_current_branch)"
+' x "$omz_repo" "$ROOT/plugins/git/plugin.bash"; then
+  assert_eq "git_main_branch and git_current_branch" "$STDOUT" "main main"
+else
+  fail_msg "git_main_branch and git_current_branch"
+fi
 
 assert_success "reinstall overwrites" "$INSTALL_SH" --prefix "$prefix"
 
